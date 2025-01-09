@@ -11,7 +11,7 @@ public:
     ReLU() : input_cache(1, 1, 1, 1) {}
 
     Matrix forward(const Matrix& input) override {
-        Matrix input_cache(input);
+        input_cache = input;
 
         Matrix output(input.batch_size(), input.channels(), input.height(), input.width());
         for (size_t b = 0; b < input.batch_size(); ++b) {

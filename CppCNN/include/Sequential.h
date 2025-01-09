@@ -57,6 +57,13 @@ public:
         }
     }
 
+    void setTrainingMode(bool training) override {
+        is_training = training;
+        for (auto& layer : layers) {
+            layer->setTrainingMode(training);
+        }
+    }
+
     uint8_t getLayerType() const override {
         return static_cast<uint8_t>(LayerType::Sequential);
     }

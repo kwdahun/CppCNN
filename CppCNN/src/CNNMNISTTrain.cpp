@@ -6,6 +6,7 @@
 #include "Conv2d.h"
 #include "ReLU.h"
 #include "Flatten.h"
+#include "Dropout.h"
 #include "Sequential.h"
 #include "CrossEntropyLoss.h"
 #include "MNISTReader.h"
@@ -62,6 +63,7 @@ int main() {
         .add(Conv2d(3, 6, 3, 2, 0))
         .add(ReLU())
         .add(Flatten())
+        //.add(Dropout(0.5))
         .add(Linear(6 * 6 * 6, 10));
 
     const std::string train_images = std::string(DATA_DIR) + "/train-images.idx3-ubyte";
@@ -70,7 +72,7 @@ int main() {
     const std::string test_labels = std::string(DATA_DIR) + "/test-labels.idx1-ubyte";
     const size_t batch_size = 32;
     const float learning_rate = 0.01f;
-    const size_t total_epochs = 20;
+    const size_t total_epochs = 10;
     const size_t train_size = 60000;
     const size_t test_size = 10000;
 
@@ -115,7 +117,7 @@ int main() {
     }
 
     // Training loop
-    for (size_t epoch = start_epoch; epoch < total_epochs; epoch++) {
+    for (size_t epoch = start_epoch; epoch < start_epoch + total_epochs; epoch++) {
         float epoch_loss = 0.0f;
         size_t batches = 0;
 

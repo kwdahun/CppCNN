@@ -5,6 +5,7 @@
 #include "Conv2d.h"
 #include "ReLU.h"
 #include "Flatten.h"
+#include "Dropout.h"
 #include "Sequential.h"
 #include "CrossEntropyLoss.h"
 #include "MNISTReader.h"
@@ -61,6 +62,7 @@ int main() {
         .add(Conv2d(3, 6, 3, 2, 0))
         .add(ReLU())
         .add(Flatten())
+        .add(Dropout(0.5))
         .add(Linear(6 * 6 * 6, 10));
 
     std::string model_path = std::string(DATA_DIR) + "/mnist_model_epoch_19.bin";

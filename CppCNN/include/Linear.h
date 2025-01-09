@@ -30,7 +30,7 @@ public:
     }
 
     Matrix forward(const Matrix& input) override {
-        Matrix input_cache(input);
+        input_cache = input;
 
         std::size_t batch_size = input.batch_size();
         Matrix output(batch_size, 1, 1, out_features);

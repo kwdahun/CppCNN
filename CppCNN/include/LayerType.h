@@ -6,5 +6,6 @@ enum class LayerType : uint8_t {
     Conv2d = 1,
     Linear = 2,
     ReLU = 3,
-    Flatten = 4
+    Flatten = 4,
+    Dropout = 5
 };

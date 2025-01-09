@@ -29,6 +29,16 @@ public:
     Matrix(size_t channels, size_t height, size_t width)
         : Matrix(1, channels, height, width) {}
 
+    Matrix(const Matrix& other)
+        : batch_size_(other.batch_size_)
+        , channels_(other.channels_)
+        , height_(other.height_)
+        , width_(other.width_)
+        , data(other.data)
+        , gradients(other.gradients)
+    {
+    }
+
     Matrix() : batch_size_(0), channels_(0), height_(0), width_(0) {}
 
     // Indexing
