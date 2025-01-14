@@ -7,32 +7,11 @@
 #include "ReLU.h"
 #include "Flatten.h"
 #include "Dropout.h"
+#include "MaxPool2d.h"
 #include "Sequential.h"
 #include "CrossEntropyLoss.h"
 #include "MNISTReader.h"
-
-float computeAccuracy(const Matrix& logits, const Matrix& labels) {
-    size_t correct = 0;
-    size_t total = logits.batch_size();
-
-    for (size_t i = 0; i < total; i++) {
-        float maxLogit = logits.at(i, 0, 0, 0);
-        size_t predictedClass = 0;
-
-        for (size_t j = 1; j < 10; j++) {
-            if (logits.at(i, 0, 0, j) > maxLogit) {
-                maxLogit = logits.at(i, 0, 0, j);
-                predictedClass = j;
-            }
-        }
-
-        if (static_cast<size_t>(labels.at(i, 0, 0, 0)) == predictedClass) {
-            correct++;
-        }
-    }
-
-    return static_cast<float>(correct) / total;
-}
+#include "Metric.h"
 
 float evaluateModel(Sequential& model, const std::string& test_images,
     const std::string& test_labels, size_t test_size,
@@ -48,7 +27,7 @@ float evaluateModel(Sequential& model, const std::string& test_images,
 
         Matrix logits = model.forward(images);
 
-        float accuracy = computeAccuracy(logits, labels);
+        float accuracy = Metric::computeAccuracy(logits, labels);
         total_accuracy += accuracy;
         num_batches++;
     }
@@ -58,13 +37,15 @@ float evaluateModel(Sequential& model, const std::string& test_images,
 
 int main() {
     // Conv2d(in_channel, out_channel, kernel_size, stride, padding)
-    Sequential model = Sequential(Conv2d(1, 3, 3, 2, 0))
+    // MaxPool2d(kernel_size, stride)
+    Sequential model = Sequential(Conv2d(1, 3, 3, 1, 1))
         .add(ReLU())
-        .add(Conv2d(3, 6, 3, 2, 0))
+        .add(MaxPool2d(2, 2))  // 2x2 pooling with stride 2
+        .add(Conv2d(3, 5, 3, 1, 1))
         .add(ReLU())
+        .add(MaxPool2d(2, 2))
         .add(Flatten())
-        //.add(Dropout(0.5))
-        .add(Linear(6 * 6 * 6, 10));
+        .add(Linear(5 * 7 * 7, 10));
 
     const std::string train_images = std::string(DATA_DIR) + "/train-images.idx3-ubyte";
     const std::string train_labels = std::string(DATA_DIR) + "/train-labels.idx1-ubyte";

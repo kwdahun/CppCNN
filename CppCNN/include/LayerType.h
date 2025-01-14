@@ -7,5 +7,6 @@ enum class LayerType : uint8_t {
     Linear = 2,
     ReLU = 3,
     Flatten = 4,
-    Dropout = 5
+    Dropout = 5,
+    MaxPool2d = 6
 };

@@ -2,6 +2,7 @@
 #include <vector>
 #include <stdexcept>
 #include <iostream>
+#include <string>
 
 class Matrix {
 private:
@@ -154,25 +155,51 @@ public:
     }
 
     void print_color() const {
+        // Pre-allocate string buffer
+        std::string buffer;
+        buffer.reserve(batch_size_ * channels_ * height_ * width_ * 20); // Approximate size
+
         for (size_t b = 0; b < batch_size_; ++b) {
-            std::cout << "Batch " << b << ":\n";
-            for (size_t c = 0; c < channels_; ++c) {
-                std::cout << " Channel " << c << ":\n";
+            buffer += "Batch " + std::to_string(b) + ":\n";
+
+            // For RGB images (3 channels)
+            if (channels_ == 3) {
                 for (size_t h = 0; h < height_; ++h) {
-                    std::cout << "  ";
+                    buffer += "  ";
                     for (size_t w = 0; w < width_; ++w) {
-                        // Convert float value [0,1] to grayscale intensity
-                        int intensity = static_cast<int>(data[b][c][h][w] * 255);
-                        // Print colored block using ANSI escape codes
-                        std::cout << "\033[48;2;" << intensity << ";"
-                            << intensity << ";" << intensity << "m  \033[0m";
+                        char temp[32];
+                        int r = static_cast<int>(data[b][0][h][w] * 255);
+                        int g = static_cast<int>(data[b][1][h][w] * 255);
+                        int b_val = static_cast<int>(data[b][2][h][w] * 255);
+
+                        snprintf(temp, sizeof(temp), "\033[48;2;%d;%d;%dm  \033[0m", r, g, b_val);
+                        buffer += temp;
                     }
-                    std::cout << "\n";
+                    buffer += '\n';
                 }
-                std::cout << "\n";
             }
-            std::cout << "\n";
+            // For grayscale images (1 channel) or other cases
+            else {
+                for (size_t c = 0; c < channels_; ++c) {
+                    for (size_t h = 0; h < height_; ++h) {
+                        buffer += "  ";
+                        for (size_t w = 0; w < width_; ++w) {
+                            char temp[32];
+                            int intensity = static_cast<int>(data[b][c][h][w] * 255);
+                            snprintf(temp, sizeof(temp), "\033[48;2;%d;%d;%dm  \033[0m",
+                                intensity, intensity, intensity);
+                            buffer += temp;
+                        }
+                        buffer += '\n';
+                    }
+                    if (channels_ > 1) buffer += '\n';
+                }
+            }
+            buffer += '\n';
         }
+
+        // Single write to stdout
+        std::cout << buffer;
     }
 
     // Getter

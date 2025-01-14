@@ -9,23 +9,31 @@ file(GLOB SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
 )
 
-set(TRAIN_MAIN "src/CNNMNISTTrain.cpp")
-set(INFERENCE_MAIN "src/CNNMNISTInference.cpp")
+set(MNIST_TRAIN_MAIN "src/CNNMNISTTrain.cpp")
+set(MNIST_INFERENCE_MAIN "src/CNNMNISTInference.cpp")
+set(CIFAR10_TRAIN_MAIN "src/CNNCIFAR10Train.cpp")
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 add_executable(mnist_train 
-    ${TRAIN_MAIN}
+    ${MNIST_TRAIN_MAIN}
     ${HEADERS}
 )
 add_executable(mnist_inference
-    ${INFERENCE_MAIN}
+    ${MNIST_INFERENCE_MAIN}
+    ${HEADERS}
+)
+add_executable(cifar10_train
+    ${CIFAR10_TRAIN_MAIN}
     ${HEADERS}
 )
 
 target_compile_definitions(mnist_train PRIVATE 
-    DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data"
+    DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data/mnist"
 )
 target_compile_definitions(mnist_inference PRIVATE 
-    DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data"
+    DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data/mnist"
+)
+target_compile_definitions(cifar10_train PRIVATE
+    DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data/cifar10"
 )
