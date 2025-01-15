@@ -36,6 +36,7 @@ public:
         // Store h, w coordinates side by side in width dimension
         indices_cache = Matrix(batch_size, channels, output_height, output_width * 2);
 
+#pragma omp parallel for collapse(4)
         for (size_t b = 0; b < batch_size; ++b) {
             for (size_t c = 0; c < channels; ++c) {
                 for (size_t h = 0; h < output_height; ++h) {

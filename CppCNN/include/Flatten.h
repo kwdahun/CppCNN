@@ -22,6 +22,7 @@ public:
 
         Matrix output(batch_size, 1, 1, flattened_size);
 
+#pragma omp parallel for
         for (size_t b = 0; b < batch_size; ++b) {
             size_t idx = 0;
             for (size_t c = 0; c < original_channels; ++c) {

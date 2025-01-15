@@ -44,43 +44,49 @@ int main() {
         return 1;
     }
 
-    Sequential model = Sequential(Conv2d(3, 6, 5, 1, 2))     // 32x32 -> 32x32
+    Sequential model = Sequential(
+        // Layer 1: Conv -> ReLU -> MaxPool
+        Conv2d(3, 64, 3, 2, 1))                              // 32x32 -> 16x16
         .add(ReLU())
-        .add(MaxPool2d(3, 2))                                 // 32x32 -> 15x15
-        .add(Dropout(0.2))
+        .add(MaxPool2d(3, 2))                                // 16x16 -> 7x7
 
-        .add(Conv2d(6, 12, 5, 1, 2))                       // 15x15 -> 15x15
+        // Layer 2: Conv -> ReLU -> MaxPool
+        .add(Conv2d(64, 192, 3, 1, 1))                      // 7x7 -> 7x7
         .add(ReLU())
-        .add(MaxPool2d(3, 2))                                // 15x15 -> 7x7
-        .add(Dropout(0.3))
+        .add(MaxPool2d(3, 2))                               // 7x7 -> 3x3
 
-        .add(Conv2d(12, 15, 3, 1, 1))                      // 7x7 -> 7x7
-        .add(ReLU())
-
-        .add(Conv2d(15, 15, 3, 1, 1))                      // 7x7 -> 7x7
+        // Layer 3: Conv -> ReLU
+        .add(Conv2d(192, 384, 3, 1, 1))                     // 3x3 -> 3x3
         .add(ReLU())
 
-        .add(Conv2d(15, 3, 3, 1, 1))                      // 7x7 -> 7x7
+        // Layer 4: Conv -> ReLU
+        .add(Conv2d(384, 256, 3, 1, 1))                     // 3x3 -> 3x3
         .add(ReLU())
-        .add(MaxPool2d(3, 2))                                // 7x7 -> 3x3
 
-        .add(Flatten())                                       // 128 * 3 * 3
+        // Layer 5: Conv -> ReLU -> MaxPool
+        .add(Conv2d(256, 256, 3, 1, 1))                     // 3x3 -> 3x3
+        .add(ReLU())
+        .add(MaxPool2d(3, 1))                               // 3x3 -> 1x1
+
+        // Flatten layer
+        .add(Flatten())                                      // 256 * 1 * 1 -> 256
+
+        // Classifier layers
         .add(Dropout(0.5))
-        .add(Linear(3 * 3 * 3, 128))
+        .add(Linear(256, 2048))
         .add(ReLU())
         .add(Dropout(0.5))
-        .add(Linear(128, 64))
+        .add(Linear(2048, 2048))
         .add(ReLU())
-        .add(Linear(64, 10));
+        .add(Linear(2048, 10));                             // 10 classes for CIFAR-10
 
 
-    const size_t batch_size = 64;  // Increased from 32
-    const float learning_rate = 0.001f;  // Decreased from 0.01
+    const size_t batch_size = 64;
+    const float learning_rate = 0.001f;
     const size_t total_epochs = 20;
     const size_t train_size = 50000;
     const size_t test_size = 10000;
 
-    // Rest of the training code remains the same
     size_t start_epoch = 0;
     std::string last_model_path;
     int latest_epoch = -1;
@@ -126,9 +132,8 @@ int main() {
         float epoch_loss = 0.0f;
         size_t batches = 0;
 
-        model.setTrainingMode(true);  // Explicitly set training mode
+        model.setTrainingMode(true);
 
-        // Iterate through all 5 training batch files
         for (size_t file_idx = 1; file_idx <= 5; file_idx++) {
             std::string batch_file = data_dir + "/data_batch_" + std::to_string(file_idx) + ".bin";
 

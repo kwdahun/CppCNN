@@ -1,5 +1,6 @@
 #pragma once
 #include <cmath>
+#include <omp.h>
 #include "Layer.h"
 #include "LayerType.h"
 #include "Matrix.h"
@@ -55,12 +56,14 @@ public:
 
     Matrix forward(const Matrix& input) override {
         input_cache = input;
-
         std::size_t batch_size = input.batch_size();
         Matrix output(batch_size, 1, 1, out_features);
+
+#pragma omp parallel for collapse(2)
         for (std::size_t b = 0; b < batch_size; b++) {
             for (std::size_t i = 0; i < out_features; i++) {
                 float sum = 0.0f;
+#pragma omp simd reduction(+:sum)
                 for (std::size_t j = 0; j < in_features; j++) {
                     sum += input.at(b, 0, 0, j) * weight.at(0, 0, i, j);
                 }
@@ -76,24 +79,28 @@ public:
         Matrix input_gradients(input_cache.batch_size(), input_cache.channels(),
             input_cache.height(), input_cache.width());
 
-        weight_gradients.zero_gradients();
-        bias_gradients.zero_gradients();
-        input_gradients.zero_gradients();
-
+#pragma omp parallel for collapse(2)
         for (size_t b = 0; b < gradient.batch_size(); ++b) {
             for (size_t i = 0; i < out_features; ++i) {
+                float batch_gradients = gradient.at(b, 0, 0, i);
+#pragma omp atomic
+                bias_gradients.at(0, 0, 0, i) += batch_gradients;
+
                 for (size_t j = 0; j < in_features; ++j) {
-                    float grad = input_cache.at(b, 0, 0, j) * gradient.at(b, 0, 0, i);
+                    float grad = input_cache.at(b, 0, 0, j) * batch_gradients;
+#pragma omp atomic
                     weight_gradients.at(0, 0, i, j) += grad;
 
-                    float input_grad = weight.at(0, 0, i, j) * gradient.at(b, 0, 0, i);
+                    float input_grad = weight.at(0, 0, i, j) * batch_gradients;
+#pragma omp atomic
                     input_gradients.at(b, 0, 0, j) += input_grad;
                 }
-                bias_gradients.at(0, 0, 0, i) += gradient.at(b, 0, 0, i);
             }
         }
 
+#pragma omp parallel for
         for (size_t i = 0; i < out_features; ++i) {
+#pragma omp simd
             for (size_t j = 0; j < in_features; ++j) {
                 weight.add_gradient(0, 0, i, j, weight_gradients.at(0, 0, i, j));
             }

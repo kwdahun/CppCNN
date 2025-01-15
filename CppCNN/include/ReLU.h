@@ -14,6 +14,8 @@ public:
         input_cache = input;
 
         Matrix output(input.batch_size(), input.channels(), input.height(), input.width());
+
+#pragma omp parallel for collapse(4)
         for (size_t b = 0; b < input.batch_size(); ++b) {
             for (size_t c = 0; c < input.channels(); ++c) {
                 for (size_t h = 0; h < input.height(); ++h) {

@@ -1,14 +1,17 @@
 #pragma once
 #include <cmath>
+#include <iostream>
 #include "Layer.h"
 #include "LayerType.h"
 #include "Matrix.h"
+
+using namespace std;
 
 class Conv2d : public Layer {
 private:
     Matrix kernel;
     Matrix bias;
-    Matrix input_cache;
+    Matrix padded_input_cache;
     std::size_t in_channels;
     std::size_t out_channels;
     std::size_t kernel_size;
@@ -36,7 +39,7 @@ public:
         , padding(padding)
         , kernel(out_channels, in_channels, kernel_size, kernel_size)
         , bias(out_channels, 1, 1, 1)
-        , input_cache(1, 1, 1, 1)
+        , padded_input_cache(1, 1, 1, 1)
 
         , m_kernel(out_channels, in_channels, kernel_size, kernel_size)
         , v_kernel(out_channels, in_channels, kernel_size, kernel_size)
@@ -74,56 +77,171 @@ public:
     }
 
     Matrix forward(const Matrix& input) override {
-        input_cache = input;
-
-        std::size_t batch_size = input.batch_size();
+        std::size_t B = input.batch_size();
+        std::size_t C = input.channels();
         std::size_t H = input.height();
         std::size_t W = input.width();
-        auto [H_out, W_out] = get_output_dims(H, W);
-        Matrix output(batch_size, out_channels, H_out, W_out);
 
-        for (std::size_t b = 0; b < batch_size; ++b) {
-            for (std::size_t oc = 0; oc < out_channels; ++oc) {
-                for (std::size_t oh = 0; oh < H_out; ++oh) {
-                    for (std::size_t ow = 0; ow < W_out; ++ow) {
-                        float sum = bias.at(oc, 0, 0, 0);
-                        for (std::size_t ic = 0; ic < in_channels; ++ic) {
-                            for (std::size_t kh = 0; kh < kernel_size; ++kh) {
-                                for (std::size_t kw = 0; kw < kernel_size; ++kw) {
-                                    std::size_t ih = oh * stride + kh - padding;
-                                    std::size_t iw = ow * stride + kw - padding;
-                                    if (ih < H && iw < W) {
-                                        sum += input.at(b, ic, ih, iw) *
-                                            kernel.at(oc, ic, kh, kw);
-                                    }
-                                }
-                            }
-                        }
-                        output.at(b, oc, oh, ow) = sum;
+        if (B == 0 || C != in_channels || H == 0 || W == 0) {
+            throw std::invalid_argument("Invalid input dimensions");
+        }
+
+        auto [H_out, W_out] = get_output_dims(H, W);
+        if (H_out == 0 || W_out == 0) {
+            throw std::invalid_argument("Invalid output dimensions");
+        }
+
+        Matrix padded_input(B, C, H + 2 * padding, W + 2 * padding);
+        Matrix output(B, out_channels, H_out, W_out);
+
+#pragma omp parallel for collapse(2)
+        for (size_t b = 0; b < B; b++) {
+            for (size_t oc = 0; oc < out_channels; oc++) {
+                const float bias_val = bias.at(oc, 0, 0, 0);
+                for (size_t oh = 0; oh < H_out; oh++) {
+#pragma omp simd
+                    for (size_t ow = 0; ow < W_out; ow++) {
+                        output.at(b, oc, oh, ow) = bias_val;
                     }
                 }
             }
         }
+
+        if (padding > 0) {
+#pragma omp parallel for collapse(3)
+            for (size_t b = 0; b < B; b++) {
+                for (size_t c = 0; c < C; c++) {
+                    for (size_t h = 0; h < H; h++) {
+#pragma omp simd
+                        for (size_t w = 0; w < W; w++) {
+                            padded_input.at(b, c, h + padding, w + padding) = input.at(b, c, h, w);
+                        }
+                    }
+                }
+            }
+        }
+
+        const Matrix& conv_input = (padding > 0) ? padded_input : input;
+        padded_input_cache = conv_input;
+
+#pragma omp parallel for collapse(3)
+        for (size_t b = 0; b < B; b++) {
+            for (size_t oc = 0; oc < out_channels; oc++) {
+                for (size_t oh = 0; oh < H_out; oh++) {
+                    for (size_t ow = 0; ow < W_out; ow++) {
+                        float sum = 0.0f;
+
+                        for (size_t ic = 0; ic < in_channels; ic++) {
+                            size_t ih_start = oh * stride;
+                            size_t iw_start = ow * stride;
+
+                            for (size_t kh = 0; kh < kernel_size; kh++) {
+                                const size_t ih = ih_start + kh;
+#pragma omp simd reduction(+:sum)
+                                for (size_t kw = 0; kw < kernel_size; kw++) {
+                                    const size_t iw = iw_start + kw;
+                                    sum += conv_input.at(b, ic, ih, iw) *
+                                        kernel.at(oc, ic, kh, kw);
+                                }
+                            }
+                        }
+                        output.at(b, oc, oh, ow) += sum;
+                    }
+                }
+            }
+        }
+
         return output;
     }
+    //
+    //    Matrix forward(const Matrix& input) override {
+    //        std::size_t B = input.batch_size();
+    //        std::size_t C = input.channels();
+    //        std::size_t H = input.height();
+    //        std::size_t W = input.width();
+    //
+    //        if (B == 0 || C != in_channels || H == 0 || W == 0) {
+    //            throw std::invalid_argument("Invalid input dimensions");
+    //        }
+    //        auto [H_out, W_out] = get_output_dims(H, W);
+    //        if (H_out == 0 || W_out == 0) {
+    //            throw std::invalid_argument("Invalid output dimensions");
+    //        }
+    //
+    //        Matrix padded_input(B, C, H + 2 * padding, W + 2 * padding);
+    //        Matrix output(B, out_channels, H_out, W_out);
+    //
+    //        // copying and padding input
+    //#pragma omp parallel for collapse(4)
+    //        for (size_t b = 0; b < B; b++) {
+    //            for (size_t c = 0; c < C; c++) {
+    //                for (size_t h = 0; h < H; h++) {
+    //                    for (size_t w = 0; w < W; w++) {
+    //                        padded_input.at(b, c, h + padding, w + padding) = input.at(b, c, h, w);
+    //                    }
+    //                }
+    //            }
+    //        }
+    //        padded_input_cache = padded_input;
+    //
+    //        // 배치에 대해 output 생성
+    //#pragma omp parallel for collapse(2)
+    //        for (size_t b = 0; b < B; b++) {
+    //
+    //            // oc와 ic들에 대해 output 생성
+    //            for (size_t oc = 0; oc < out_channels; oc++) {
+    //                for (size_t ic = 0; ic < in_channels; ic++) {
+    //
+    //                    // 하나의 채널에 대해 output 생성
+    //                    for (size_t oh = 0; oh < H_out; oh++) {
+    //                        for (size_t ow = 0; ow < W_out; ow++) {
+    //
+    //                            // output 한 칸당 커널 적용
+    //                            for (size_t kh = 0; kh < kernel_size; kh++) {
+    //                                for (size_t kw = 0; kw < kernel_size; kw++) {
+    //                                    size_t ih = kh + oh * stride;
+    //                                    size_t iw = kw + ow * stride;
+    //
+    //                                    if (ih >= padded_input.height() || iw >= padded_input.width()) {
+    //                                        std::cout << "Index out of bounds: ih=" << ih << " iw=" << iw << " kh=" << kh << " oh=" << oh << std::endl;
+    //                                        std::cout << "Input dims: H=" << padded_input.height() << " W=" << padded_input.width() << std::endl;
+    //                                    }
+    //
+    //                                    output.at(b, oc, oh, ow) += padded_input.at(b, ic, ih, iw) * kernel.at(oc, ic, kh, kw);
+    //                                }
+    //                            }
+    //                            output.at(b, oc, oh, ow) += bias.at(oc, 0, 0, 0);
+    //                        }
+    //                    }
+    //
+    //                }
+    //            }
+    //        }
+    //        return output;
+    //    }
+
+
 
     Matrix backward(const Matrix& gradient) override {
-        std::size_t batch_size = gradient.batch_size();
-        std::size_t H = input_cache.height();
-        std::size_t W = input_cache.width();
-        Matrix input_gradients(batch_size, in_channels, H, W);
+        std::size_t B = padded_input_cache.batch_size();
+        std::size_t H = padded_input_cache.height();
+        std::size_t W = padded_input_cache.width();
+        std::size_t origH = H - 2 * padding;
+        std::size_t origW = W - 2 * padding;
+        auto [H_out, W_out] = get_output_dims(origH, origW);
 
-        kernel.zero_gradients();
-        bias.zero_gradients();
-        input_gradients.zero_gradients();
+        Matrix kernel_gradients(kernel.batch_size(), kernel.channels(), kernel.height(), kernel.width());
+        Matrix bias_gradients(bias.batch_size(), bias.channels(), bias.height(), bias.width());
+        Matrix tmp_input_gradients(B, in_channels, H, W);
+        Matrix input_gradients(B, in_channels, origH, origW);
 
-        auto [H_out, W_out] = get_output_dims(H, W);
-
-        for (std::size_t oc = 0; oc < out_channels; ++oc) {
+#pragma omp parallel for
+        for (size_t oc = 0; oc < out_channels; oc++) {
             float bias_grad = 0.0f;
-            for (std::size_t b = 0; b < batch_size; ++b) {
-                for (std::size_t oh = 0; oh < H_out; ++oh) {
-                    for (std::size_t ow = 0; ow < W_out; ++ow) {
+            for (size_t b = 0; b < B; b++) {
+                for (size_t oh = 0; oh < H_out; oh++) {
+#pragma omp simd reduction(+:bias_grad)
+                    for (size_t ow = 0; ow < W_out; ow++) {
                         bias_grad += gradient.at(b, oc, oh, ow);
                     }
                 }
@@ -131,25 +249,41 @@ public:
             bias.add_gradient(oc, 0, 0, 0, bias_grad);
         }
 
-        for (std::size_t b = 0; b < batch_size; ++b) {
-            for (std::size_t oc = 0; oc < out_channels; ++oc) {
-                for (std::size_t oh = 0; oh < H_out; ++oh) {
-                    for (std::size_t ow = 0; ow < W_out; ++ow) {
-                        float grad = gradient.at(b, oc, oh, ow);
+#pragma omp parallel for collapse(2)
+        for (size_t oc = 0; oc < out_channels; oc++) {
+            for (size_t ic = 0; ic < in_channels; ic++) {
+                for (size_t kh = 0; kh < kernel_size; kh++) {
+                    for (size_t kw = 0; kw < kernel_size; kw++) {
+                        float kernel_grad = 0.0f;
 
-                        for (std::size_t ic = 0; ic < in_channels; ++ic) {
-                            for (std::size_t kh = 0; kh < kernel_size; ++kh) {
-                                for (std::size_t kw = 0; kw < kernel_size; ++kw) {
-                                    std::size_t ih = oh * stride + kh - padding;
-                                    std::size_t iw = ow * stride + kw - padding;
+                        for (size_t b = 0; b < B; b++) {
+                            for (size_t oh = 0; oh < H_out; oh++) {
+                                for (size_t ow = 0; ow < W_out; ow++) {
+                                    size_t ih = oh * stride + kh;
+                                    size_t iw = ow * stride + kw;
+                                    kernel_grad += gradient.at(b, oc, oh, ow) *
+                                        padded_input_cache.at(b, ic, ih, iw);
+                                }
+                            }
+                        }
 
-                                    if (ih < H && iw < W) {
-                                        float kernel_grad = input_cache.at(b, ic, ih, iw) * grad;
-                                        kernel.add_gradient(oc, ic, kh, kw, kernel_grad);
+                        kernel.add_gradient(oc, ic, kh, kw, kernel_grad);
+                    }
+                }
 
-                                        input_gradients.at(b, ic, ih, iw) +=
-                                            kernel.at(oc, ic, kh, kw) * grad;
-                                    }
+                for (size_t b = 0; b < B; b++) {
+                    for (size_t oh = 0; oh < H_out; oh++) {
+                        for (size_t ow = 0; ow < W_out; ow++) {
+                            const float grad_val = gradient.at(b, oc, oh, ow);
+
+                            for (size_t kh = 0; kh < kernel_size; kh++) {
+                                size_t ih = oh * stride + kh;
+#pragma omp simd
+                                for (size_t kw = 0; kw < kernel_size; kw++) {
+                                    size_t iw = ow * stride + kw;
+#pragma omp atomic
+                                    tmp_input_gradients.at(b, ic, ih, iw) +=
+                                        grad_val * kernel.at(oc, ic, kh, kw);
                                 }
                             }
                         }
@@ -158,8 +292,89 @@ public:
             }
         }
 
+#pragma omp parallel for collapse(3)
+        for (size_t b = 0; b < B; b++) {
+            for (size_t c = 0; c < in_channels; c++) {
+                for (size_t h = 0; h < origH; h++) {
+#pragma omp simd
+                    for (size_t w = 0; w < origW; w++) {
+                        input_gradients.at(b, c, h, w) =
+                            tmp_input_gradients.at(b, c, h + padding, w + padding);
+                    }
+                }
+            }
+        }
+
         return input_gradients;
     }
+
+
+
+    //    Matrix backward(const Matrix& gradient) override {
+    //        std::size_t B = padded_input_cache.batch_size();
+    //        std::size_t C = padded_input_cache.channels();
+    //        std::size_t H = padded_input_cache.height();
+    //        std::size_t W = padded_input_cache.width();
+    //        std::size_t origH = H - 2 * padding;
+    //        std::size_t origW = W - 2 * padding;
+    //
+    //        Matrix tmp_input_gradients(B, C, H, W);
+    //        Matrix input_gradients(B, C, origH, origW);
+    //
+    //        auto [H_out, W_out] = get_output_dims(origH, origW);
+    //
+    //#pragma omp parallel for
+    //        for (size_t b = 0; b < B; b++) {
+    //            for (size_t oc = 0; oc < out_channels; oc++) {
+    //                for (size_t ic = 0; ic < in_channels; ic++) {
+    //                    for (size_t oh = 0; oh < H_out; oh++) {
+    //                        for (size_t ow = 0; ow < W_out; ow++) {
+    //                            for (size_t kh = 0; kh < kernel_size; kh++) {
+    //                                for (size_t kw = 0; kw < kernel_size; kw++) {
+    //                                    size_t ih = oh * stride + kh;
+    //                                    size_t iw = ow * stride + kw;
+    //
+    //                                    if (ih >= H || iw >= W) {
+    //                                        cout << "[ERROR] out of range ih=" << ih << " iw=" << iw << " H=" << H << " W=" << W << " oh=" << oh << " ow=" << ow << endl;
+    //                                    }
+    //
+    //                                    tmp_input_gradients.at(b, ic, ih, iw) += gradient.at(b, oc, oh, ow) * kernel.at(oc, ic, kh, kw);
+    //                                    float grad = gradient.at(b, oc, oh, ow) * padded_input_cache.at(b, ic, ih, iw);
+    //                                    
+    //#pragma omp atomic
+    //                                    kernel.add_gradient(oc, ic, kh, kw, grad);
+    //                                }
+    //                            }
+    //                        }
+    //                    }
+    //                }
+    //            }
+    //        }
+    //
+    //        for (size_t b = 0; b < B; b++) {
+    //            for (size_t oc = 0; oc < out_channels; oc++) {
+    //                for (size_t oh = 0; oh < H_out; oh++) {
+    //                    for (size_t ow = 0; ow < W_out; ow++) {
+    //                        float grad = gradient.at(b, oc, oh, ow);
+    //                        bias.add_gradient(oc, 0, 0, 0, grad);
+    //                    }
+    //                }
+    //            }
+    //        }
+    //
+    //#pragma omp parallel for collapse(4)
+    //        for (size_t b = 0; b < B; b++) {
+    //            for (size_t c = 0; c < C; c++) {
+    //                for (size_t h = 0; h < origH; h++) {
+    //                    for (size_t w = 0; w < origW; w++) {
+    //                        input_gradients.at(b, c, h, w) = tmp_input_gradients.at(b, c, h + padding, w + padding);
+    //                    }
+    //                }
+    //            }
+    //        }
+    //
+    //        return input_gradients;
+    //    }
 
     void update_parameters(float learning_rate) override {
         t++; // Increment time step

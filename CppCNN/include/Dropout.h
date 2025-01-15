@@ -30,27 +30,22 @@ public:
 
         // Create new mask for this forward pass
         mask = Matrix(input.batch_size(), input.channels(), input.height(), input.width());
-
-        // Generate random mask
-        for (size_t b = 0; b < input.batch_size(); ++b) {
-            for (size_t c = 0; c < input.channels(); ++c) {
-                for (size_t h = 0; h < input.height(); ++h) {
-                    for (size_t w = 0; w < input.width(); ++w) {
-                        mask.at(b, c, h, w) = distribution(generator) > dropout_rate ? 1.0f : 0.0f;
-                    }
-                }
-            }
-        }
-
-        // Apply mask and scale
         Matrix output(input.batch_size(), input.channels(), input.height(), input.width());
         float scale = 1.0f / (1.0f - dropout_rate);
 
-        for (size_t b = 0; b < input.batch_size(); ++b) {
-            for (size_t c = 0; c < input.channels(); ++c) {
-                for (size_t h = 0; h < input.height(); ++h) {
-                    for (size_t w = 0; w < input.width(); ++w) {
-                        output.at(b, c, h, w) = input.at(b, c, h, w) * mask.at(b, c, h, w) * scale;
+#pragma omp parallel
+        {
+            std::mt19937 local_generator(generator());
+            std::uniform_real_distribution<float> local_distribution(0.0f, 1.0f);
+
+#pragma omp for collapse(4)
+            for (size_t b = 0; b < input.batch_size(); ++b) {
+                for (size_t c = 0; c < input.channels(); ++c) {
+                    for (size_t h = 0; h < input.height(); ++h) {
+                        for (size_t w = 0; w < input.width(); ++w) {
+                            float mask_val = local_distribution(local_generator) > dropout_rate ? 1.0f : 0.0f;
+                            output.at(b, c, h, w) = input.at(b, c, h, w) * mask_val * scale;
+                        }
                     }
                 }
             }
