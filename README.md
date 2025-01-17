@@ -50,7 +50,7 @@ After building, while in the `out/build` directory:
 
 ## Prerequisites
 
-- C++17 compatible compiler
+- C++20 compatible compiler
 - CMake 3.0 or higher
 
 ## Data
