@@ -6,8 +6,8 @@ if(WIN32)
     set(OpenBLAS_DIR "C:/OpenBLAS")
     set(OpenBLAS_LIB "libopenblas")
 else()
-    set(OpenBLAS_DIR "/home/kwdahun/OpenBLAS")
-    set(OpenBLAS_LIB "openblas")
+    find_package(OpenBLAS REQUIRED)
+    set(OpenBLAS_LIB "${OpenBLAS_LIBRARIES}")
 endif()
 
 file(GLOB HEADERS CONFIGURE_DEPENDS
