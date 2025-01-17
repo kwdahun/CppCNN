@@ -1,10 +1,10 @@
 #pragma once
 #include <cmath>
 #include <omp.h>
+#include <cblas.h>
 #include "Layer.h"
 #include "LayerType.h"
 #include "Matrix.h"
-
 
 class Linear : public Layer {
 private:
@@ -14,15 +14,14 @@ private:
     std::size_t in_features;
     std::size_t out_features;
 
-    // Adam optimizer parameters
-    Matrix m_weight;  // First moment (momentum) for weights
-    Matrix v_weight;  // Second moment (velocity) for weights
-    Matrix m_bias;    // First moment for bias
-    Matrix v_bias;    // Second moment for bias
-    size_t t;        // Time step counter
-    float beta1;     // Exponential decay rate for first moment
-    float beta2;     // Exponential decay rate for second moment
-    float epsilon;   // Small constant for numerical stability
+    Matrix m_weight;
+    Matrix v_weight;
+    Matrix m_bias;
+    Matrix v_bias;
+    size_t t;
+    float beta1;
+    float beta2;
+    float epsilon;
 
 public:
     Linear(std::size_t in_features, std::size_t out_features)
@@ -59,84 +58,120 @@ public:
         std::size_t batch_size = input.batch_size();
         Matrix output(batch_size, 1, 1, out_features);
 
-#pragma omp parallel for collapse(2)
+        int M = batch_size;
+        int N = out_features;
+        int K = in_features;
+
+        cblas_sgemm(CblasRowMajor,
+            CblasNoTrans,
+            CblasTrans,
+            M,
+            N,
+            K,
+            1.0f,
+            &input_cache.at(0, 0, 0, 0),
+            K,
+            &weight.at(0, 0, 0, 0),
+            K,
+            0.0f,
+            &output.at(0, 0, 0, 0),
+            N);
+
+#pragma omp parallel for
         for (std::size_t b = 0; b < batch_size; b++) {
+#pragma omp simd
             for (std::size_t i = 0; i < out_features; i++) {
-                float sum = 0.0f;
-#pragma omp simd reduction(+:sum)
-                for (std::size_t j = 0; j < in_features; j++) {
-                    sum += input.at(b, 0, 0, j) * weight.at(0, 0, i, j);
-                }
-                output.at(b, 0, 0, i) = sum + bias.at(0, 0, 0, i);
+                output.at(b, 0, 0, i) += bias.at(0, 0, 0, i);
             }
         }
+
         return output;
     }
 
     Matrix backward(const Matrix& gradient) override {
+        std::size_t batch_size = gradient.batch_size();
         Matrix weight_gradients(weight.batch_size(), weight.channels(), weight.height(), weight.width());
         Matrix bias_gradients(bias.batch_size(), bias.channels(), bias.height(), bias.width());
         Matrix input_gradients(input_cache.batch_size(), input_cache.channels(),
             input_cache.height(), input_cache.width());
 
-#pragma omp parallel for collapse(2)
-        for (size_t b = 0; b < gradient.batch_size(); ++b) {
-            for (size_t i = 0; i < out_features; ++i) {
-                float batch_gradients = gradient.at(b, 0, 0, i);
-#pragma omp atomic
-                bias_gradients.at(0, 0, 0, i) += batch_gradients;
-
-                for (size_t j = 0; j < in_features; ++j) {
-                    float grad = input_cache.at(b, 0, 0, j) * batch_gradients;
-#pragma omp atomic
-                    weight_gradients.at(0, 0, i, j) += grad;
-
-                    float input_grad = weight.at(0, 0, i, j) * batch_gradients;
-#pragma omp atomic
-                    input_gradients.at(b, 0, 0, j) += input_grad;
-                }
-            }
-        }
-
 #pragma omp parallel for
         for (size_t i = 0; i < out_features; ++i) {
-#pragma omp simd
+            float sum = 0.0f;
+            for (size_t b = 0; b < batch_size; ++b) {
+                sum += gradient.at(b, 0, 0, i);
+            }
+            bias.add_gradient(0, 0, 0, i, sum);
+        }
+
+        int M = out_features;
+        int N = in_features;
+        int K = batch_size;
+
+        cblas_sgemm(CblasRowMajor,
+            CblasTrans,
+            CblasNoTrans,
+            M,
+            N,
+            K,
+            1.0f,
+            &gradient.at(0, 0, 0, 0),
+            M,
+            &input_cache.at(0, 0, 0, 0),
+            N,
+            0.0f,
+            &weight_gradients.at(0, 0, 0, 0),
+            N);
+
+        M = batch_size;
+        N = in_features;
+        K = out_features;
+
+        cblas_sgemm(CblasRowMajor,
+            CblasNoTrans,
+            CblasNoTrans,
+            M,
+            N,
+            K,
+            1.0f,
+            &gradient.at(0, 0, 0, 0),
+            K,
+            &weight.at(0, 0, 0, 0),
+            N,
+            0.0f,
+            &input_gradients.at(0, 0, 0, 0),
+            N);
+
+#pragma omp parallel for collapse(2)
+        for (size_t i = 0; i < out_features; ++i) {
             for (size_t j = 0; j < in_features; ++j) {
                 weight.add_gradient(0, 0, i, j, weight_gradients.at(0, 0, i, j));
             }
-            bias.add_gradient(0, 0, 0, i, bias_gradients.at(0, 0, 0, i));
         }
 
         return input_gradients;
     }
 
     void update_parameters(float learning_rate) override {
-        t++; // Increment time step
+        t++;
 
-        // Compute bias correction terms
         float correction1 = 1.0f / (1.0f - std::pow(beta1, t));
         float correction2 = 1.0f / (1.0f - std::pow(beta2, t));
 
-        // Update weights
         for (size_t i = 0; i < out_features; ++i) {
             for (size_t j = 0; j < in_features; ++j) {
                 float grad = weight.get_gradient(0, 0, i, j);
 
-                // Update biased first moment estimate
                 m_weight.at(0, 0, i, j) = beta1 * m_weight.at(0, 0, i, j) + (1 - beta1) * grad;
 
-                // Update biased second moment estimate
                 v_weight.at(0, 0, i, j) = beta2 * v_weight.at(0, 0, i, j) + (1 - beta2) * grad * grad;
 
-                // Compute bias-corrected first and second moment estimates
                 float m_hat = m_weight.at(0, 0, i, j) * correction1;
                 float v_hat = v_weight.at(0, 0, i, j) * correction2;
 
-                // Update weights
                 weight.at(0, 0, i, j) -= learning_rate * m_hat / (std::sqrt(v_hat) + epsilon);
             }
 
-            // Update bias with the same Adam logic
             float bias_grad = bias.get_gradient(0, 0, 0, i);
 
             m_bias.at(0, 0, 0, i) = beta1 * m_bias.at(0, 0, 0, i) + (1 - beta1) * bias_grad;

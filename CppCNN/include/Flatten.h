@@ -1,4 +1,5 @@
 #pragma once
+#include <omp.h>
 #include "Layer.h"
 #include "LayerType.h"
 #include "Matrix.h"
@@ -19,22 +20,21 @@ public:
 
         size_t batch_size = input.batch_size();
         size_t flattened_size = original_channels * original_height * original_width;
-
         Matrix output(batch_size, 1, 1, flattened_size);
 
-#pragma omp parallel for
+#pragma omp parallel for collapse(2)
         for (size_t b = 0; b < batch_size; ++b) {
-            size_t idx = 0;
             for (size_t c = 0; c < original_channels; ++c) {
+                size_t base_idx = c * original_height * original_width;
                 for (size_t h = 0; h < original_height; ++h) {
+#pragma omp simd
                     for (size_t w = 0; w < original_width; ++w) {
+                        size_t idx = base_idx + h * original_width + w;
                         output.at(b, 0, 0, idx) = input.at(b, c, h, w);
-                        idx++;
                     }
                 }
             }
         }
-
         return output;
     }
 
@@ -42,18 +42,19 @@ public:
         size_t batch_size = gradient.batch_size();
         Matrix output(batch_size, original_channels, original_height, original_width);
 
+#pragma omp parallel for collapse(2)
         for (size_t b = 0; b < batch_size; ++b) {
-            size_t idx = 0;
             for (size_t c = 0; c < original_channels; ++c) {
+                size_t base_idx = c * original_height * original_width;
                 for (size_t h = 0; h < original_height; ++h) {
+#pragma omp simd
                     for (size_t w = 0; w < original_width; ++w) {
+                        size_t idx = base_idx + h * original_width + w;
                         output.at(b, c, h, w) = gradient.at(b, 0, 0, idx);
-                        idx++;
                     }
                 }
             }
         }
-
         return output;
     }
 

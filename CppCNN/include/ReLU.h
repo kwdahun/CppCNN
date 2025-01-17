@@ -1,4 +1,5 @@
 #pragma once
+#include <omp.h>
 #include "Layer.h"
 #include "LayerType.h"
 #include "Matrix.h"
@@ -12,13 +13,13 @@ public:
 
     Matrix forward(const Matrix& input) override {
         input_cache = input;
-
         Matrix output(input.batch_size(), input.channels(), input.height(), input.width());
 
-#pragma omp parallel for collapse(4)
+#pragma omp parallel for collapse(3)
         for (size_t b = 0; b < input.batch_size(); ++b) {
             for (size_t c = 0; c < input.channels(); ++c) {
                 for (size_t h = 0; h < input.height(); ++h) {
+#pragma omp simd
                     for (size_t w = 0; w < input.width(); ++w) {
                         output.at(b, c, h, w) = std::max(0.0f, input.at(b, c, h, w));
                     }
@@ -29,11 +30,13 @@ public:
     }
 
     Matrix backward(const Matrix& gradient) override {
-        // ReLU derivative: 1 if input > 0, 0 otherwise
         Matrix output(gradient.batch_size(), gradient.channels(), gradient.height(), gradient.width());
+
+#pragma omp parallel for collapse(3)
         for (size_t b = 0; b < gradient.batch_size(); ++b) {
             for (size_t c = 0; c < gradient.channels(); ++c) {
                 for (size_t h = 0; h < gradient.height(); ++h) {
+#pragma omp simd
                     for (size_t w = 0; w < gradient.width(); ++w) {
                         output.at(b, c, h, w) = input_cache.at(b, c, h, w) > 0 ?
                             gradient.at(b, c, h, w) : 0.0f;

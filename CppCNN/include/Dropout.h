@@ -1,4 +1,5 @@
 #pragma once
+#include <omp.h>
 #include "Layer.h"
 #include "LayerType.h"
 #include "Matrix.h"
@@ -25,25 +26,28 @@ public:
 
     Matrix forward(const Matrix& input) override {
         if (!is_training) {
-            return input * (1.0f - dropout_rate); // Scale during inference
+            return input * (1.0f - dropout_rate);
         }
 
-        // Create new mask for this forward pass
         mask = Matrix(input.batch_size(), input.channels(), input.height(), input.width());
         Matrix output(input.batch_size(), input.channels(), input.height(), input.width());
         float scale = 1.0f / (1.0f - dropout_rate);
 
 #pragma omp parallel
         {
+            // Create thread-local random number generator
             std::mt19937 local_generator(generator());
             std::uniform_real_distribution<float> local_distribution(0.0f, 1.0f);
 
-#pragma omp for collapse(4)
+#pragma omp for collapse(3)
             for (size_t b = 0; b < input.batch_size(); ++b) {
                 for (size_t c = 0; c < input.channels(); ++c) {
                     for (size_t h = 0; h < input.height(); ++h) {
+#pragma omp simd
                         for (size_t w = 0; w < input.width(); ++w) {
-                            float mask_val = local_distribution(local_generator) > dropout_rate ? 1.0f : 0.0f;
+                            float rand_val = local_distribution(local_generator);
+                            float mask_val = rand_val > dropout_rate ? 1.0f : 0.0f;
+                            mask.at(b, c, h, w) = mask_val;
                             output.at(b, c, h, w) = input.at(b, c, h, w) * mask_val * scale;
                         }
                     }
@@ -59,13 +63,14 @@ public:
             return gradient * (1.0f - dropout_rate);
         }
 
-        // Apply same mask and scaling to gradients
         Matrix output(gradient.batch_size(), gradient.channels(), gradient.height(), gradient.width());
         float scale = 1.0f / (1.0f - dropout_rate);
 
+#pragma omp parallel for collapse(3)
         for (size_t b = 0; b < gradient.batch_size(); ++b) {
             for (size_t c = 0; c < gradient.channels(); ++c) {
                 for (size_t h = 0; h < gradient.height(); ++h) {
+#pragma omp simd
                     for (size_t w = 0; w < gradient.width(); ++w) {
                         output.at(b, c, h, w) = gradient.at(b, c, h, w) * mask.at(b, c, h, w) * scale;
                     }
@@ -77,7 +82,7 @@ public:
     }
 
     void update_parameters(float learning_rate) override {
-        // No parameter
+        // No parameters to update
     }
 
     uint8_t getLayerType() const override {
@@ -93,6 +98,7 @@ public:
     }
 
     float getDropoutRate() const { return dropout_rate; }
+
     void setDropoutRate(float rate) {
         if (rate < 0.0f || rate >= 1.0f) {
             throw std::invalid_argument("Dropout rate must be in range [0, 1)");

@@ -1,11 +1,12 @@
 #pragma once
+#include <omp.h>
 #include "Layer.h"
 #include "LayerType.h"
 #include "Matrix.h"
 
 class MaxPool2d : public Layer {
 private:
-    Matrix indices_cache;  // Store indices for backprop
+    Matrix indices_cache;
     size_t kernel_size;
     size_t stride;
 
@@ -33,18 +34,17 @@ public:
         size_t output_width = (width - kernel_size) / stride + 1;
 
         Matrix output(batch_size, channels, output_height, output_width);
-        // Store h, w coordinates side by side in width dimension
         indices_cache = Matrix(batch_size, channels, output_height, output_width * 2);
 
-#pragma omp parallel for collapse(4)
+#pragma omp parallel for collapse(3)
         for (size_t b = 0; b < batch_size; ++b) {
             for (size_t c = 0; c < channels; ++c) {
                 for (size_t h = 0; h < output_height; ++h) {
+#pragma omp simd
                     for (size_t w = 0; w < output_width; ++w) {
                         float max_val = -std::numeric_limits<float>::infinity();
                         size_t max_h = 0, max_w = 0;
 
-                        // Find maximum in the kernel window
                         for (size_t kh = 0; kh < kernel_size; ++kh) {
                             for (size_t kw = 0; kw < kernel_size; ++kw) {
                                 size_t ih = h * stride + kh;
@@ -60,7 +60,6 @@ public:
                         }
 
                         output.at(b, c, h, w) = max_val;
-                        // Store indices side by side in width dimension
                         indices_cache.at(b, c, h, w * 2) = static_cast<float>(max_h);
                         indices_cache.at(b, c, h, w * 2 + 1) = static_cast<float>(max_w);
                     }
@@ -78,12 +77,15 @@ public:
         Matrix input_gradients(batch_size, channels, last_input_height, last_input_width);
         input_gradients.zero_gradients();
 
+#pragma omp parallel for collapse(3)
         for (size_t b = 0; b < batch_size; ++b) {
             for (size_t c = 0; c < channels; ++c) {
                 for (size_t h = 0; h < gradient.height(); ++h) {
+#pragma omp simd
                     for (size_t w = 0; w < gradient.width(); ++w) {
                         size_t max_h = static_cast<size_t>(indices_cache.at(b, c, h, w * 2));
                         size_t max_w = static_cast<size_t>(indices_cache.at(b, c, h, w * 2 + 1));
+#pragma omp atomic
                         input_gradients.at(b, c, max_h, max_w) += gradient.at(b, c, h, w);
                     }
                 }
@@ -93,7 +95,7 @@ public:
     }
 
     void update_parameters(float learning_rate) override {
-        // MaxPool layer has no learnable parameters
+        // No parameters to update
     }
 
     uint8_t getLayerType() const override {
