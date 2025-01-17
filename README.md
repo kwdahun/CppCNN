@@ -1,8 +1,10 @@
 # CNN Implementation in C++
 
-This project implements a Convolutional Neural Network (CNN) from scratch in C++ for MNIST digit classification.
+This project implements a Convolutional Neural Network (CNN) from scratch in C++ for MNIST and CIFAR10 data classification using OpenBLAS and OpenMP.
 
 ## Build Instructions
+
+Be sure OpenBLAS is installed in `OpenBLAS_DIR` directory in `CMakeLists.txt`
 
 At project root directory:
 
@@ -27,6 +29,7 @@ After building, while in the `out/build` directory:
 ### Training
 ```bash
 ./CppCNN/mnist_train
+./CppCNN/cifar10_train
 ```
 
 ### Inference
@@ -55,10 +58,16 @@ After building, while in the `out/build` directory:
 
 ## Data
 
-The project expects MNIST dataset files in the `CppCNN/data` directory:
+The project expects MNIST and CIFAR10 dataset in the `CppCNN/data/mnist` and `CppCNN/data/cifar10` directory:
+In mnist directory:
 - train-images.idx3-ubyte
 - train-labels.idx1-ubyte
 - test-images.idx3-ubyte
 - test-labels.idx1-ubyte
+
+In cifar10 directory:
+- data_batch_`N`.bin
+- test_batch.bin
+- batches.meta.txt
 
 After training, model files will be saved in the same directory with names like `mnist_model_epoch_N.bin` where N is the epoch number.
